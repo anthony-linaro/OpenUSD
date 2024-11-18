@@ -393,7 +393,10 @@ def RunCMake(context, force, extraArgs = None):
 
     # Note - don't want to add -A (architecture flag) if generator is, ie, Ninja
     if IsVisualStudio2019OrGreater() and "Visual Studio" in generator:
-        generator = generator + " -A x64"
+        if "ARM" in os.environ.get('PROCESSOR_IDENTIFIER'):
+            generator = generator + " -A arm64"
+        else:
+            generator = generator + " -A x64"
 
     toolset = context.cmakeToolset
     if toolset is not None:
