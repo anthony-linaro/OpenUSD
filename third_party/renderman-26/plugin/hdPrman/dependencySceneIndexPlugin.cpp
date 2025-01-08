@@ -5,24 +5,44 @@
 // https://openusd.org/license.
 
 #include "hdPrman/dependencySceneIndexPlugin.h"
+
 #include "hdPrman/tokens.h"
 
 #include "pxr/imaging/hd/containerDataSourceEditor.h"
+#include "pxr/imaging/hd/dataSource.h"
+#include "pxr/imaging/hd/dataSourceLocator.h"
+#include "pxr/imaging/hd/dataSourceTypeDefs.h"
+#include "pxr/imaging/hd/dependenciesSchema.h"
+#include "pxr/imaging/hd/dependencySchema.h"
 #include "pxr/imaging/hd/filteringSceneIndex.h"
 #include "pxr/imaging/hd/lazyContainerDataSource.h"
+#include "pxr/imaging/hd/lightSchema.h"
 #include "pxr/imaging/hd/mapContainerDataSource.h"
 #include "pxr/imaging/hd/overlayContainerDataSource.h"
 #include "pxr/imaging/hd/perfLog.h"
 #include "pxr/imaging/hd/retainedDataSource.h"
+#include "pxr/imaging/hd/sceneIndex.h"
+#include "pxr/imaging/hd/sceneIndexObserver.h"
 #include "pxr/imaging/hd/sceneIndexPluginRegistry.h"
 #include "pxr/imaging/hd/tokens.h"
-
-#include "pxr/imaging/hd/collectionsSchema.h"
-#include "pxr/imaging/hd/dependenciesSchema.h"
-#include "pxr/imaging/hd/lightSchema.h"
-#include "pxr/imaging/hd/visibilitySchema.h"
 #include "pxr/imaging/hd/volumeFieldBindingSchema.h"
 #include "pxr/imaging/hd/volumeFieldSchema.h"
+
+#include "pxr/usd/sdf/path.h"
+
+#include "pxr/base/tf/declarePtrs.h"
+#include "pxr/base/tf/refPtr.h"
+#include "pxr/base/tf/registryManager.h"
+#include "pxr/base/tf/staticTokens.h"
+#include "pxr/base/tf/token.h"
+#include "pxr/base/tf/type.h"
+#include "pxr/base/vt/value.h"
+
+#include "pxr/pxr.h"
+
+#include <cstddef>
+#include <functional>
+#include <vector>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -138,10 +158,19 @@ _BuildLightFilterDependenciesDs(const SdfPathVector &filterPaths)
     std::vector<HdDataSourceBaseHandle> deps;
     const size_t numFilters = filterPaths.size();
 
-    // For each filter targeted by the light, register 2 dependencies to
-    // forward light filter linking and visibility invalidation to the light.
-    const size_t numDeps =
-        1 /* __dependencies -> filters */ +  2 * numFilters;
+    // Register a dependency on each filter targeted by the light such that
+    // the invalidation of *any* locator on the filter invalidates the 'light'
+    // locator of the light prim.
+    // This matches the legacy dependency declaration in HdPrman_Light using
+    // HdChangeTracker::{Add,Remove}SprimSprimDependency.
+    // Note that this is conservative in a catch-all sense and we could instead
+    // register individual dependency entries for collection, visibility, light
+    // and material locators.
+    //
+    // Additionally, declare that the dependencies depends on the targeted 
+    // filters.
+    // 
+    const size_t numDeps = 1 /* __dependencies -> filters */ +  numFilters;
     names.reserve(numDeps);
     deps.reserve(numDeps);
 
@@ -160,37 +189,23 @@ _BuildLightFilterDependenciesDs(const SdfPathVector &filterPaths)
             .SetDependedOnDataSourceLocator(filtersLocDs)
             .SetAffectedDataSourceLocator(dependenciesLocDs)
             .Build());
-    
-    static HdLocatorDataSourceHandle filterLinkLocDs =
-        HdRetainedTypedSampledDataSource<HdDataSourceLocator>::New(
-            HdCollectionsSchema::GetDefaultLocator()
-                .Append(HdTokens->filterLink));
 
-    static HdLocatorDataSourceHandle filterVisLocDs =
+    static HdLocatorDataSourceHandle emptyLocDs =
         HdRetainedTypedSampledDataSource<HdDataSourceLocator>::New(
-            HdVisibilitySchema::GetDefaultLocator());
-    
+            HdDataSourceLocator::EmptyLocator());
+
     static HdLocatorDataSourceHandle affectedLocatorDs = 
         HdRetainedTypedSampledDataSource<HdDataSourceLocator>::New(
-            // XXX This should be more targeted.
             HdLightSchema::GetDefaultLocator());
 
     for (const auto &filterPath : filterPaths) {
-        names.push_back(TfToken(filterPath.GetAsString() + "_linkDep"));
+        const std::string filterPathStr = filterPath.GetAsString();
+        names.push_back(TfToken(filterPathStr));
         deps.push_back(
             HdDependencySchema::Builder()
             .SetDependedOnPrimPath(
                 HdRetainedTypedSampledDataSource<SdfPath>::New(filterPath))
-            .SetDependedOnDataSourceLocator(filterLinkLocDs)
-            .SetAffectedDataSourceLocator(affectedLocatorDs)
-            .Build());
-
-        names.push_back(TfToken(filterPath.GetAsString() + "_visDep"));
-        deps.push_back(
-            HdDependencySchema::Builder()
-            .SetDependedOnPrimPath(
-                HdRetainedTypedSampledDataSource<SdfPath>::New(filterPath))
-            .SetDependedOnDataSourceLocator(filterVisLocDs)
+            .SetDependedOnDataSourceLocator(emptyLocDs)
             .SetAffectedDataSourceLocator(affectedLocatorDs)
             .Build());
     }
@@ -201,10 +216,12 @@ _BuildLightFilterDependenciesDs(const SdfPathVector &filterPaths)
 
 HdContainerDataSourceHandle
 _ComputeLightFilterDependencies(
-    const SdfPath &lightPrimPath,
     const HdContainerDataSourceHandle &lightPrimSource)
 {
-    const HdLightSchema ls = HdLightSchema::GetFromParent(lightPrimSource);
+#if PXR_VERSION >= 2405
+    const
+#endif
+    HdLightSchema ls = HdLightSchema::GetFromParent(lightPrimSource);
 
     // XXX
     // HdLightSchema is barebones at the moment, so we need to explicitly use
@@ -267,7 +284,7 @@ public:
                           HdDependenciesSchema::GetDefaultLocator(),
                           HdLazyContainerDataSource::New(
                               std::bind(_ComputeLightFilterDependencies,
-                                        primPath, prim.dataSource)))
+                                        prim.dataSource)))
                       .Finish() };
         }
         return prim;

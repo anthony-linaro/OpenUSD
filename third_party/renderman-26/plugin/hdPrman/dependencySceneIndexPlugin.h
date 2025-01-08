@@ -7,8 +7,11 @@
 #ifndef EXT_RMANPKG_PLUGIN_RENDERMAN_PLUGIN_HD_PRMAN_DEPENDENCY_SCENE_INDEX_PLUGIN_H
 #define EXT_RMANPKG_PLUGIN_RENDERMAN_PLUGIN_HD_PRMAN_DEPENDENCY_SCENE_INDEX_PLUGIN_H
 
-#include "pxr/pxr.h"
+#include "pxr/imaging/hd/dataSource.h"
+#include "pxr/imaging/hd/sceneIndexObserver.h"
 #include "pxr/imaging/hd/sceneIndexPlugin.h"
+
+#include "pxr/pxr.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -29,8 +32,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 ///
 /// 2. Light -> Light Filter
 /// This declaration registers the light data source locator of a light prim
-/// to be invalidated if the visibility or filter link collection of a
-/// targeted light filter changes.
+/// to be invalidated if any locator of a targeted light filter changes.
 ///
 class HdPrman_DependencySceneIndexPlugin : public HdSceneIndexPlugin
 {

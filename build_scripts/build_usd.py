@@ -690,15 +690,15 @@ def InstallZlib(context, force, buildArgs):
         # They're not required for use on any platforms, so we elide them
         # for efficiency
         PatchFile("CMakeLists.txt",
-                  [("add_executable(example test/example.c)",
+                [("add_executable(example test/example.c)",
                     ""),
-                   ("add_executable(minigzip test/minigzip.c)",
+                ("add_executable(minigzip test/minigzip.c)",
                     ""),
-                   ("target_link_libraries(example zlib)",
+                ("target_link_libraries(example zlib)",
                     ""),
-                   ("target_link_libraries(minigzip zlib)",
+                ("target_link_libraries(minigzip zlib)",
                     ""),
-                   ("add_test(example example)",
+                ("add_test(example example)",
                     "")])
         RunCMake(context, force, buildArgs)
 
@@ -726,32 +726,34 @@ BOOST_VERSION_FILES = [
     "include/boost/version.hpp",
     "include/boost-1_76/boost/version.hpp",
     "include/boost-1_78/boost/version.hpp",
-    "include/boost-1_82/boost/version.hpp"
+    "include/boost-1_82/boost/version.hpp",
+    "include/boost-1_86/boost/version.hpp"
 ]
 
 def InstallBoost_Helper(context, force, buildArgs):
     # In general we use boost 1.76.0 to adhere to VFX Reference Platform CY2022.
     # However, there are some cases where a newer version is required.
+    # - Building with Visual Studio 2022 with the 14.4x toolchain requires boost
+    #   1.86.0 or newer, we choose it for all Visual Studio 2022 versions for
+    #   simplicity.
     # - Building with Python 3.11 requires boost 1.82.0 or newer
     #   (https://github.com/boostorg/python/commit/a218ba)
-    # - Building on MacOS requires v1.82.0 or later for C++17 support starting 
-    #   with Xcode 15. We choose to use this version for all MacOS builds for 
+    # - Building on MacOS requires v1.82.0 or later for C++17 support starting
+    #   with Xcode 15. We choose to use this version for all MacOS builds for
     #   simplicity."
     # - Building with Python 3.10 requires boost 1.76.0 or newer
     #   (https://github.com/boostorg/python/commit/cbd2d9)
     #   XXX: Due to a typo we've been using 1.78.0 in this case for a while.
     #        We're leaving it that way to minimize potential disruption.
-    # - Building with Visual Studio 2022 requires boost 1.78.0 or newer.
-    #   (https://github.com/boostorg/build/issues/735)
     # - Building on MacOS requires boost 1.78.0 or newer to resolve Python 3
     #   compatibility issues on Big Sur and Monterey.
     pyInfo = GetPythonInfo(context)
     pyVer = (int(pyInfo[3].split('.')[0]), int(pyInfo[3].split('.')[1]))
-    if MacOS() or (context.buildBoostPython and pyVer >= (3,11)):
+    if IsVisualStudio2022OrGreater():
+        BOOST_URL = "https://boostorg.jfrog.io/artifactory/main/release/1.86.0/source/boost_1_86_0.zip"
+    elif MacOS() or (context.buildBoostPython and pyVer >= (3,11)):
         BOOST_URL = "https://boostorg.jfrog.io/artifactory/main/release/1.82.0/source/boost_1_82_0.zip"
     elif context.buildBoostPython and pyVer >= (3, 10):
-        BOOST_URL = "https://boostorg.jfrog.io/artifactory/main/release/1.78.0/source/boost_1_78_0.zip"
-    elif IsVisualStudio2022OrGreater():
         BOOST_URL = "https://boostorg.jfrog.io/artifactory/main/release/1.78.0/source/boost_1_78_0.zip"
     else:
         BOOST_URL = "https://boostorg.jfrog.io/artifactory/main/release/1.76.0/source/boost_1_76_0.zip"
@@ -862,6 +864,7 @@ def InstallBoost_Helper(context, force, buildArgs):
             b2_settings.append("--with-date_time")
 
         if context.buildOIIO or context.enableOpenVDB:
+            b2_settings.append("--with-chrono")
             b2_settings.append("--with-system")
             b2_settings.append("--with-thread")
 
@@ -958,7 +961,7 @@ ONETBB_URL = "https://github.com/oneapi-src/oneTBB/archive/refs/tags/v2021.9.0.z
 
 def InstallOneTBB(context, force, buildArgs):
     with CurrentWorkingDirectory(DownloadURL(ONETBB_URL, context, force)):
-        RunCMake(context, force, 
+        RunCMake(context, force,
                  ['-DTBB_TEST=OFF',
                   '-DTBB_STRICT=OFF'] + buildArgs)
 
@@ -1212,7 +1215,7 @@ PNG = Dependency("PNG", InstallPNG, "include/png.h")
 ############################################################
 # IlmBase/OpenEXR
 
-OPENEXR_URL = "https://github.com/AcademySoftwareFoundation/openexr/archive/refs/tags/v3.1.11.zip"
+OPENEXR_URL = "https://github.com/AcademySoftwareFoundation/openexr/archive/refs/tags/v3.1.13.zip"
 
 def InstallOpenEXR(context, force, buildArgs):
     with CurrentWorkingDirectory(DownloadURL(OPENEXR_URL, context, force)):
@@ -1314,7 +1317,7 @@ OPENVDB = Dependency("OpenVDB", InstallOpenVDB, "include/openvdb/openvdb.h")
 ############################################################
 # OpenImageIO
 
-OIIO_URL = "https://github.com/OpenImageIO/oiio/archive/refs/tags/v2.3.21.0.zip"
+OIIO_URL = "https://github.com/OpenImageIO/oiio/archive/refs/tags/v2.5.16.0.zip"
 
 def InstallOpenImageIO(context, force, buildArgs):
     with CurrentWorkingDirectory(DownloadURL(OIIO_URL, context, force)):
@@ -1708,6 +1711,11 @@ def InstallUSD(context, force, buildArgs):
             extraArgs.append('-DPXR_BUILD_USD_TOOLS=ON')
         else:
             extraArgs.append('-DPXR_BUILD_USD_TOOLS=OFF')
+
+        if context.buildUsdValidation:
+            extraArgs.append('-DPXR_BUILD_USD_VALIDATION=ON')
+        else:
+            extraArgs.append('-DPXR_BUILD_USD_VALIDATION=OFF')
             
         if context.buildImaging:
             extraArgs.append('-DPXR_BUILD_IMAGING=ON')
@@ -1817,6 +1825,13 @@ programDescription = """\
 Installation Script for USD
 
 Builds and installs USD and 3rd-party dependencies to specified location.
+
+The `build_usd.py` script by default downloads and installs the zlib library
+when necessary on platforms other than Linux. For those platforms, this behavior
+may be overridden by supplying the `--no-zlib` command line option. If this
+option is used, then the dependencies of OpenUSD which use zlib must be able to
+discover the user supplied zlib in the build environment via the means of cmake's
+`find_package` utility.
 
 - Libraries:
 The following is a list of libraries that this script will download and build
@@ -2025,6 +2040,13 @@ subgroup.add_argument("--prefer-speed-over-safety", dest="safety_first",
                       action="store_false", help=
                       "Disable performance-impacting safety checks against "
                       "malformed input files")
+subgroup = group.add_mutually_exclusive_group()
+subgroup.add_argument("--usdValidation", dest="build_usd_validation",
+                      action="store_true", default=True, help="Build USD " \
+                      "Validation library and validators (default)")
+subgroup.add_argument("--no-usdValidation", dest="build_usd_validation",
+                      action="store_false", help="Do not build USD " \
+                      "Validation library and validators")
 
 group.add_argument("--boost-python", dest="build_boost_python",
                    action="store_true", default=False,
@@ -2074,6 +2096,13 @@ subgroup.add_argument("--usdview", dest="build_usdview",
 subgroup.add_argument("--no-usdview", dest="build_usdview",
                       action="store_false", 
                       help="Do not build usdview")
+subgroup = group.add_mutually_exclusive_group()
+subgroup.add_argument("--zlib", dest="build_zlib",
+                      action="store_true", default=True,
+                      help="Install zlib on behalf of dependencies (default)")
+subgroup.add_argument("--no-zlib", dest="build_zlib",
+                      action="store_false",
+                      help="Do not install zlib for dependencies")
 
 group = parser.add_argument_group(title="Imaging Plugin Options")
 subgroup = group.add_mutually_exclusive_group()
@@ -2273,6 +2302,7 @@ class InstallContext:
         self.buildExamples = args.build_examples and not embedded
         self.buildTutorials = args.build_tutorials and not embedded
         self.buildTools = args.build_tools and not embedded
+        self.buildUsdValidation = args.build_usd_validation and not embedded
 
         # - Documentation
         self.buildDocs = args.build_docs or args.build_python_docs
@@ -2294,6 +2324,9 @@ class InstallContext:
         self.buildUsdview = (self.buildUsdImaging and 
                              self.buildPython and 
                              args.build_usdview)
+        
+        # - zlib
+        self.buildZlib = args.build_zlib
 
         # - Imaging plugins
         self.buildEmbree = self.buildImaging and args.build_embree
@@ -2364,7 +2397,7 @@ if extraPythonPaths:
 if context.buildOneTBB:
     TBB = ONETBB
 
-requiredDependencies = [ZLIB, TBB]
+requiredDependencies = [TBB]
 
 if context.buildBoostPython:
     requiredDependencies += [BOOST]
@@ -2382,18 +2415,18 @@ if context.buildMaterialX:
 
 if context.buildImaging:
     if context.enablePtex:
-        requiredDependencies += [PTEX]
+        requiredDependencies += [ZLIB, PTEX]
 
     requiredDependencies += [OPENSUBDIV]
 
     if context.enableOpenVDB:
-        requiredDependencies += [BLOSC, BOOST, OPENEXR, OPENVDB, TBB]
+        requiredDependencies += [ZLIB, TBB, BLOSC, BOOST, OPENEXR, OPENVDB]
     
     if context.buildOIIO:
-        requiredDependencies += [BOOST, JPEG, TIFF, PNG, OPENEXR, OPENIMAGEIO]
+        requiredDependencies += [ZLIB, BOOST, JPEG, TIFF, PNG, OPENEXR, OPENIMAGEIO]
 
     if context.buildOCIO:
-        requiredDependencies += [OPENCOLORIO]
+        requiredDependencies += [ZLIB, OPENCOLORIO]
 
     if context.buildEmbree:
         requiredDependencies += [TBB, EMBREE]
@@ -2404,11 +2437,12 @@ if context.buildUsdview:
 if context.buildAnimXTests:
     requiredDependencies += [ANIMX]
 
-# Assume zlib already exists on Linux platforms and don't build
-# our own. This avoids potential issues where a host application
-# loads an older version of zlib than the one we'd build and link
-# our libraries against.
-if Linux():
+# Linux provides zlib. Skipping it here avoids issues where a host 
+# application loads a different version of zlib than the one we build against.
+# Building zlib is the default when a dependency requires it, although OpenUSD
+# itself does not require it. The --no-zlib flag can be passed to the build
+# script to allow the dependency to find zlib in the build environment.
+if (Linux() or not context.buildZlib) and ZLIB in requiredDependencies:
     requiredDependencies.remove(ZLIB)
 
 # Error out if user is building monolithic library on windows with draco plugin
@@ -2608,6 +2642,7 @@ if context.useCXX11ABI is not None:
 summaryMsg += """\
     Variant                     {buildVariant}
     Target                      {buildTarget}
+    UsdValidation               {buildUsdValidation}
     Imaging                     {buildImaging}
       Ptex support:             {enablePtex}
       OpenVDB support:          {enableOpenVDB}
@@ -2687,6 +2722,7 @@ summaryMsg = summaryMsg.format(
     buildExamples=("On" if context.buildExamples else "Off"),
     buildTutorials=("On" if context.buildTutorials else "Off"),
     buildTools=("On" if context.buildTools else "Off"),
+    buildUsdValidation=("On" if context.buildUsdValidation else "Off"),
     buildAlembic=("On" if context.buildAlembic else "Off"),
     buildDraco=("On" if context.buildDraco else "Off"),
     buildMaterialX=("On" if context.buildMaterialX else "Off"),
