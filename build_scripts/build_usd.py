@@ -152,6 +152,18 @@ def IsVisualStudio2017OrGreater():
     VISUAL_STUDIO_2017_VERSION = (14, 1)
     return IsVisualStudioVersionOrGreater(VISUAL_STUDIO_2017_VERSION)
 
+# Helper to get the current host arch on Windows
+def GetWindowsHostArch():
+    identifier = os.environ.get('PROCESSOR_IDENTIFIER')
+    # ARM64 identifiers currently start with "ARMv8 ...."
+    # Note: This could be modified in the future to distinguish between ARMv8 and ARMv9
+    if "ARM" in identifier:
+        return "ARM64"
+    elif any(x64Arch in identifier for x64Arch in ["AMD64", "Intel64", "EM64T"]):
+        return "x64"
+    else:
+        raise RuntimeError("Unknown Windows host arch")
+
 def GetPythonInfo(context):
     """Returns a tuple containing the path to the Python executable, shared
     library, and include directory corresponding to the version of Python
@@ -393,10 +405,8 @@ def RunCMake(context, force, extraArgs = None):
 
     # Note - don't want to add -A (architecture flag) if generator is, ie, Ninja
     if IsVisualStudio2019OrGreater() and "Visual Studio" in generator:
-        if "ARM" in os.environ.get('PROCESSOR_IDENTIFIER'):
-            generator = generator + " -A arm64"
-        else:
-            generator = generator + " -A x64"
+        windowsHostArch = GetWindowsHostArch()
+        generator = generator + " -A " + windowsHostArch
 
     toolset = context.cmakeToolset
     if toolset is not None:
